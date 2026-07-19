@@ -53,16 +53,17 @@ app.use((err, _req, res, _next) => {
 });
 
 // =============================================
-// Vercel Export vs Local Server
+// ✅ FIXED: Export at TOP LEVEL for Vercel
 // =============================================
-if (isProduction) {
-  // Export for Vercel
-  export default app;
-} else {
-  // Local development
+
+// For local development, start the server
+if (!isProduction) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🚀 SN Clothing backend running on http://localhost:${PORT}`);
     console.log(`📊 Environment: development (SQLite)`);
   });
 }
+
+// ✅ EXPORT at top level (not inside conditional)
+export default app;
