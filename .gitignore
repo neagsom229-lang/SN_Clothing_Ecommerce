@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Vite
+*.tsbuildinfo
+
+# Testing
+coverage/
+
+# Cache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+
+# Misc
+*.tmp
+.temp
+# Create .gitignore
+echo "node_modules/
+dist/
+.env
+.DS_Store
+*.log
+.vscode/
+.idea/" > .gitignore
