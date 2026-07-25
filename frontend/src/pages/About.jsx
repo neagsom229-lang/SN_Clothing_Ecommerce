@@ -2,35 +2,33 @@
 import { coverImage, avatarImage, getMediaImage } from '../utils/images';
 import { MEDIA } from '../data/media';
 
-// Import team photos - USE THE EXACT FILENAME FROM YOUR FOLDER
-import ibbiePhoto from '../assets/team/ibbie-eckart.jpg'; // ✅ Correct filename
 
 // Comment out other imports until you add the photos
 // import ardenPhoto from '../assets/team/arden-vasek.jpg';
 // import toribioPhoto from '../assets/team/toribio-nerthus.jpg';
 // import malvinaPhoto from '../assets/team/malvina-cilla.jpg';
 
-const team = [
-    { 
-        name: 'Mr.Chheang Samnang', 
-        role: 'Founder & CEO',
-        photo: ibbiePhoto // ✅ Now uses real photo
-    },
-    { 
-        name: 'Arden Vasek', 
-        role: 'CFO',
-        photo: null // Uses avatar fallback
-    },
-    { 
-        name: 'Toribio Nerthus', 
-        role: 'Operations Manager',
-        photo: null // Uses avatar fallback
-    },
-    { 
-        name: 'Malvina Cilla', 
-        role: 'CTO',
-        photo: null // Uses avatar fallback
-    },
+const INFO_ITEMS = [
+  {
+    title: 'Free Shipping',
+    desc: 'On all orders over $50, delivered fast and tracked.',
+    icon: 'bi-truck',
+  },
+  {
+    title: 'Secure Payment',
+    desc: 'Checkout protected with encrypted, trusted gateways.',
+    icon: 'bi-shield-check',
+  },
+  {
+    title: 'Easy Returns',
+    desc: '30-day hassle-free returns on unworn items.',
+    icon: 'bi-arrow-repeat',
+  },
+  {
+    title: '24/7 Support',
+    desc: 'Real help whenever you need it, no bots in the loop.',
+    icon: 'bi-headset',
+  },
 ];
 
 export default function About() {
@@ -136,49 +134,33 @@ export default function About() {
                     </div>
                 </div>
             </section>
-
-            {/* Team members section */}
-            <section className="py-5 bg-light">
-                <div className="container px-5 my-5">
-                    <div className="text-center">
-                        <h2 className="fw-bolder">Our team</h2>
-                        <p className="lead fw-normal text-muted mb-5">
-                            Dedicated to quality and your success
-                        </p>
-                    </div>
-                    <div className="row gx-5 row-cols-1 row-cols-sm-2 row-cols-xl-4 justify-content-center">
-                        {team.map((member) => {
-                            // Use real photo if available, otherwise use avatar fallback
-                            const memberImage = member.photo || avatarImage(member.name);
-                            
-                            return (
-                                <div className="col mb-5" key={member.name}>
-                                    <div className="text-center">
-                                        <img
-                                            className="img-fluid rounded-circle mb-4"
-                                            src={memberImage}
-                                            alt={member.name}
-                                            style={{ 
-                                                width: '150px', 
-                                                height: '150px', 
-                                                objectFit: 'cover',
-                                                border: '3px solid #fff',
-                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                            }}
-                                            onError={(e) => {
-                                                // If real photo fails, use avatar
-                                                e.target.src = avatarImage(member.name);
-                                            }}
-                                        />
-                                        <h5 className="fw-bolder">{member.name}</h5>
-                                        <div className="fst-italic text-muted">{member.role}</div>
-                                    </div>
-                                </div>
-                            );
-                        })}
+            {/* Why shop with us section */}
+<section className="py-5 bg-light">
+    <div className="container px-5 my-5">
+        <div className="text-center">
+            <h2 className="fw-bolder">Why shop with us</h2>
+            <p className="lead fw-normal text-muted mb-5">
+                Built around quality, trust, and a smooth experience
+            </p>
+        </div>
+        <div className="row gx-5 row-cols-1 row-cols-sm-2 row-cols-xl-4 justify-content-center">
+            {INFO_ITEMS.map((item) => (
+                <div className="col mb-5" key={item.title}>
+                    <div className="text-center info-card">
+                        <div className="info-card__icon">
+                            <i className={`bi ${item.icon}`} />
+                        </div>
+                        <h5 className="fw-bolder mb-2">{item.title}</h5>
+                        <p className="text-muted mb-0 small">{item.desc}</p>
                     </div>
                 </div>
-            </section>
+            ))}
+        </div>
+    </div>
+</section>
+
+
+
         </main>
     );
 }
