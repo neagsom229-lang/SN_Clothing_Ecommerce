@@ -1318,3 +1318,84 @@ footer.site-footer .brand-logo--sm {
   color: #fff;
 }
 
+.newsletter-input {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.newsletter-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.newsletter-input:focus {
+  border-color: #c1272d;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.newsletter-btn {
+  border: none;
+  background: #c1272d;
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.newsletter-btn:hover {
+  background: #a11f24;
+}
+
+.footer-social {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1rem;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.footer-social:hover {
+  background: #c1272d;
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.footer-link {
+  position: relative;
+  transition: color 0.15s ease, padding-left 0.15s ease;
+}
+.footer-link:hover {
+  color: #fff !important;
+  padding-left: 4px;
+}
+
+.footer-accept-label {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.footer-trust {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.back-to-top {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  transition: color 0.15s ease;
+}
+.back-to-top:hover {
+  color: #fff;
+}
