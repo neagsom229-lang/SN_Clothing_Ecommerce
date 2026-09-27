@@ -23,6 +23,7 @@ A modern, responsive e-commerce platform for clothing, shoes, and accessories bu
 - **Images:** Dynamic imports with SVG fallbacks
 
 ## 📁 Project Structure
+
 SN_Clothing_BrandNew/
 ├── public/ # Static assets
 ├── scripts/ # Build and utility scripts
