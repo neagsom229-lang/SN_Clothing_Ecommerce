@@ -82,6 +82,14 @@ export const EXPRESS_CARRIERS = [
     eta: '2–4 days',
     logo: mekongLogo,
   },
+  {
+    key: 'pickup',
+    carrier: 'Store Pickup',
+    fee: 0,
+    eta: 'Same day — pick up at our store',
+    icon: 'bi-shop',
+    addressInfo: 'SN Clothing Store — Phnom Penh',
+  },
 ];
 
 export const getCarrier = (key) => EXPRESS_CARRIERS.find((c) => c.key === key);

@@ -1,33 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
-import products, { categoryLabel } from '../data/products';
+import { categoryLabel } from '../data/products';
+import { useProducts } from '../context/ProductsContext';
 import { formatPrice } from '../utils/format';
 
 const MAX_RESULTS = 5;
 
-function matchProducts(query) {
-  const q = query.trim().toLowerCase();
-  if (q.length < 2) return [];
-  return products
-    .filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.brand.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-    )
-    .slice(0, MAX_RESULTS);
-}
-
 export default function SearchBox() {
+  const { products } = useProducts();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const boxRef = useRef(null);
   const navigate = useNavigate();
 
-  const results = matchProducts(query);
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return products
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.brand.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q)
+      )
+      .slice(0, MAX_RESULTS);
+  }, [query, products]);
 
   useEffect(() => {
     const onClickOutside = (e) => {

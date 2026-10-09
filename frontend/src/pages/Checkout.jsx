@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { QRCodeSVG } from 'qrcode.react';
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
@@ -9,6 +8,8 @@ import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { useProducts } from '../context/ProductsContext';
+import Spinner from 'react-bootstrap/Spinner';
 import { formatPrice } from '../utils/format';
 import {
   PAYMENT_METHODS,
@@ -16,14 +17,15 @@ import {
   PROVINCES,
   getPayment,
   getCarrier,
-  buildPaymentPayload,
 } from '../data/checkout';
 import { createPaymentIntent, createOrder as createBackendOrder } from '../api/client';
 import StripeCheckoutForm from '../components/StripeCheckoutForm';
+import BakongPayment from '../components/BakongPayment';
 
 export default function Checkout() {
   const { detailed, subtotal, clear } = useCart();
   const { user, token, placeOrder } = useAuth();
+  const { loading: productsLoading, error: productsError } = useProducts();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
@@ -41,18 +43,38 @@ export default function Checkout() {
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeError, setStripeError] = useState(null);
 
-  // The PaymentIntent amount is locked to a carrier + cart at creation time,
-  // so if either changes we need a fresh one before the customer can pay.
+  // Bakong expired state
+  const [bakongExpired, setBakongExpired] = useState(false);
+  const [bakongSubmitting, setBakongSubmitting] = useState(false);
+  const [bakongError, setBakongError] = useState(null);
+  const [bakongStarted, setBakongStarted] = useState(false);
+  const [bakongFinalizeError, setBakongFinalizeError] = useState(null);
+  const [bakongPendingOrder, setBakongPendingOrder] = useState(null);
+
   useEffect(() => {
     setStripeSecret(null);
     setStripeError(null);
+    setBakongExpired(false);
+    setBakongError(null);
+    if (bakongStarted) {
+      setBakongError('Your cart or delivery changed. Please regenerate the QR.');
+      setBakongStarted(false);
+    }
   }, [form.carrier, form.payment]);
 
-  // Stable reference used inside the payment QR (before the order exists).
-  const payRef = useMemo(
-    () => `W401-${Math.floor(100000 + Math.random() * 900000)}`,
-    []
-  );
+  if (productsError) {
+    return (
+      <main className="flex-shrink-0 text-center py-5">
+        <Container>
+          <div className="alert alert-danger">
+            <i className="bi bi-exclamation-triangle me-2" />
+            Failed to load products: {productsError}
+          </div>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </Container>
+      </main>
+    );
+  }
 
   if (detailed.length === 0) {
     return <Navigate to="/cart" replace />;
@@ -72,13 +94,13 @@ export default function Checkout() {
     const e = {};
     if (!form.fullName.trim()) e.fullName = 'Recipient name is required.';
     if (!/^[0-9+\-\s]{6,}$/.test(form.phone.trim())) e.phone = 'Enter a valid phone number.';
-    if (!form.province) e.province = 'Please choose a province / city.';
-    if (!form.addressLine.trim()) e.addressLine = 'Street / house address is required.';
+    if (form.carrier !== 'pickup') {
+      if (!form.province) e.province = 'Please choose a province / city.';
+      if (!form.addressLine.trim()) e.addressLine = 'Street / house address is required.';
+    }
     return e;
   };
 
-  // Shared by both payment paths — builds the order record used for the
-  // existing local order-history / tracking pages (OrderDetail.jsx etc.).
   const buildLocalOrder = (extra = {}) => {
     const items = detailed.map(({ product, size, qty, lineTotal }) => ({
       id: product.id,
@@ -108,9 +130,6 @@ export default function Checkout() {
     });
   };
 
-  // Called once Stripe confirms the card charge succeeded. Saves the
-  // authoritative, payment-verified order in the backend database, then
-  // mirrors it locally so the existing order-tracking pages keep working.
   const handleStripePaid = async (paymentIntentId) => {
     setStripeError(null);
     try {
@@ -140,18 +159,77 @@ export default function Checkout() {
     }
   };
 
+  const handleBakongPaid = async (backendOrderId, md5, orphaned) => {
+    setBakongError(null);
+    setBakongFinalizeError(null);
+    setBakongSubmitting(true);
+    try {
+      if (orphaned) {
+        const order = buildLocalOrder({
+          backendOrderId,
+          backendOrderNumber: `SN-REC-${md5.slice(0, 6)}`,
+          paymentMethod: 'bakong',
+          md5,
+        });
+        clear();
+        navigate(`/order/${order.id}`, {
+          state: { warning: 'We recovered your payment. Please confirm your delivery details in your profile.' },
+        });
+        return;
+      }
+
+      const validationErrors = validate();
+      if (Object.keys(validationErrors).length > 0) {
+        setErrors(validationErrors);
+        setBakongError('Please fill in all delivery details before completing payment.');
+        setBakongSubmitting(false);
+        return;
+      }
+
+      const { order: backendOrder } = await createBackendOrder({
+        items: detailed.map(({ product, size, qty }) => ({ id: product.id, qty, size })),
+        carrier: form.carrier,
+        shipping: {
+          fullName: form.fullName.trim(),
+          phone: form.phone.trim(),
+          province: form.province,
+          addressLine: form.addressLine.trim(),
+        },
+        paymentMethod: 'bakong',
+        md5,
+        token,
+      });
+
+      const order = buildLocalOrder({
+        backendOrderId: backendOrder.id,
+        backendOrderNumber: backendOrder.order_number,
+        paymentMethod: 'bakong',
+        md5,
+      });
+
+      clear();
+      navigate(`/order/${order.id}`);
+    } catch (err) {
+      setBakongFinalizeError(err.message || 'Could not finalize order after payment. Please try again.');
+      setBakongPendingOrder({ md5, backendOrderId });
+    } finally {
+      setBakongSubmitting(false);
+    }
+  };
+
+  const retryBakongFinalization = async () => {
+    if (!bakongPendingOrder) return;
+    await handleBakongPaid(bakongPendingOrder.backendOrderId, bakongPendingOrder.md5);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    // Card payments: the "Place order" button's first click only creates the
-    // Stripe PaymentIntent and reveals the card field below. The actual charge
-    // + order creation happens from StripeCheckoutForm's own "Pay" button via
-    // handleStripePaid, once the card has been confirmed with Stripe.
     if (payment.key === 'stripe') {
-      if (stripeSecret) return; // card form is already showing — nothing to do here
+      if (stripeSecret) return;
       setStripeBusy(true);
       setStripeError(null);
       try {
@@ -168,17 +246,16 @@ export default function Checkout() {
       return;
     }
 
-    // Existing QR / cash flow — unchanged.
+    if (payment.qr) {
+      // For Bakong KHQR, submission is handled inside BakongPayment component automatically via scanning/polling
+      return;
+    }
+
+    // Cash on delivery
     const order = buildLocalOrder();
     clear();
     navigate(`/order/${order.id}`);
   };
-
-  const qrValue = buildPaymentPayload({
-    bankLabel: payment.label,
-    amount: total,
-    reference: payRef,
-  });
 
   return (
     <main className="flex-shrink-0">
@@ -275,18 +352,33 @@ export default function Checkout() {
                             checked={form.carrier === c.key}
                             onChange={() => setForm((f) => ({ ...f, carrier: c.key }))}
                           />
-                          <img
-                            src={c.logo}
-                            alt={`${c.carrier} logo`}
-                            className="brand-logo d-block mx-auto mb-2"
-                          />
+                          {c.logo ? (
+                            <img
+                              src={c.logo}
+                              alt={`${c.carrier} logo`}
+                              className="brand-logo d-block mx-auto mb-2"
+                            />
+                          ) : (
+                            <i className={`bi ${c.icon} brand-logo-icon fs-2 d-block mx-auto mb-2 text-primary`} />
+                          )}
                           <span className="fw-semibold d-block">{c.carrier}</span>
                           <span className="text-muted small d-block">{c.eta}</span>
-                          <span className="text-primary small">{formatPrice(c.fee)}</span>
+                          <span className="text-primary small">
+                            {c.fee === 0 ? 'Free ($0.00)' : formatPrice(c.fee)}
+                          </span>
+                          {c.addressInfo && (
+                            <span className="text-muted small d-block mt-1" style={{ fontSize: '0.75rem' }}>{c.addressInfo}</span>
+                          )}
                         </label>
                       </Col>
                     ))}
                   </Row>
+                  {form.carrier === 'pickup' && (
+                    <div className="alert alert-info mt-3 mb-0 small">
+                      <i className="bi bi-info-circle me-2" />
+                      You'll pick up your order at our store. We'll notify you when it's ready.
+                    </div>
+                  )}
                 </Card.Body>
               </Card>
 
@@ -327,7 +419,7 @@ export default function Checkout() {
                     ))}
                   </Row>
 
-                  {/* Card (Stripe), QR for bank / wallet, or cash-on-delivery */}
+                  {/* Card (Stripe), Bakong KHQR, or Cash */}
                   {payment.card ? (
                     <>
                       {stripeError && (
@@ -348,29 +440,74 @@ export default function Checkout() {
                       )}
                     </>
                   ) : payment.qr ? (
-                    <div className="text-center mt-4 p-4 border rounded-3 bg-light">
-                      <p className="fw-semibold mb-1">
-                        Scan to pay with {payment.label}
-                      </p>
-                      <p className="text-muted small mb-3">{payment.hint}</p>
-                      <div
-                        className="d-inline-block bg-white p-3 rounded-3 shadow-sm"
-                        style={{ borderTop: `6px solid ${payment.color}` }}
-                      >
-                        <QRCodeSVG
-                          value={qrValue}
-                          size={188}
-                          level="M"
-                          fgColor={payment.color}
-                        />
-                        <div className="fw-bold mt-2" style={{ color: payment.color }}>
-                          {payment.label}
-                        </div>
-                        <div className="small text-muted">
-                          {formatPrice(total)} · Ref {payRef}
-                        </div>
-                      </div>
-                    </div>
+                  <>
+                  {bakongError && (
+                  <div className="alert alert-danger mt-4 mb-0">{bakongError}</div>
+                  )}
+                  {bakongExpired ? (
+                  <div className="alert alert-warning mt-4 p-4 text-center">
+                  <p className="fw-semibold mb-2">QR Code Expired</p>
+                  <Button variant="primary" size="sm" onClick={() => window.location.reload()}>
+                  Try Again
+                  </Button>
+                  </div>
+                  ) : !bakongStarted ? (
+                  <>
+                  <div className="alert alert-secondary mt-4 mb-3">
+                  <i className="bi bi-info-circle me-2" />
+                  Please review your delivery details above, then click Continue to generate
+                  the payment QR. Payment will be for {formatPrice(total)}.
+                  </div>
+                  <div className="d-grid">
+                  <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => {
+                  const found = validate();
+                  setErrors(found);
+                  if (Object.keys(found).length > 0) {
+                  setBakongError('Please fill in all delivery details before generating the payment QR.');
+                  return;
+                  }
+                  setBakongError(null);
+                  setBakongStarted(true);
+                  }}
+                  >
+                  <i className="bi bi-qr-code me-2" />
+                  Continue to QR Payment
+                  </Button>
+                  </div>
+                  </>
+                  ) : (
+                  <BakongPayment
+                  items={detailed.map(({ product, size, qty }) => ({
+                  id: product.id,
+                  qty,
+                  size,
+                  }))}
+                  carrier={form.carrier}
+                  currency="USD"
+                  token={token}
+                  expectedTotal={total}
+                  onSuccess={handleBakongPaid}
+                  onExpired={() => setBakongExpired(true)}
+                  />
+                  )}
+                  {bakongFinalizeError && (
+                  <div className="alert alert-warning mt-3">
+                  <p className="fw-semibold mb-2">Payment received, but we couldn't finalize your order.</p>
+                  <p className="small mb-3">Reference: {bakongPendingOrder?.md5?.slice(0, 12)}</p>
+                  <Button onClick={retryBakongFinalization} variant="primary" size="sm">
+                  Retry Finalization
+                  </Button>
+                  </div>
+                  )}
+                  {bakongSubmitting && (
+                  <div className="text-center mt-3 text-primary fw-semibold">
+                  Payment confirmed! Finalizing your order…
+                  </div>
+                  )}
+                  </>
                   ) : (
                     <div className="alert alert-secondary mt-4 mb-0">
                       <i className="bi bi-cash-coin me-2" />
@@ -427,7 +564,7 @@ export default function Checkout() {
                     <span className="fw-bolder fs-5">{formatPrice(total)}</span>
                   </div>
 
-                  {!(payment.card && stripeSecret) && (
+                  {!(payment.card && stripeSecret) && !payment.qr && (
                     <div className="d-grid">
                       <Button type="submit" variant="primary" size="lg" disabled={stripeBusy}>
                         <i className="bi bi-shield-lock me-2" />
@@ -436,6 +573,14 @@ export default function Checkout() {
                             ? 'Starting payment…'
                             : 'Continue to payment'
                           : 'Place order'}
+                      </Button>
+                    </div>
+                  )}
+                  {payment.card && !stripeSecret && (
+                    <div className="d-grid">
+                      <Button type="submit" variant="primary" size="lg" disabled={stripeBusy}>
+                        <i className="bi bi-credit-card me-2" />
+                        {stripeBusy ? 'Starting payment…' : 'Continue to payment'}
                       </Button>
                     </div>
                   )}

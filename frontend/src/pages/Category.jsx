@@ -4,29 +4,54 @@ import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 import Button from 'react-bootstrap/Button';
+import Spinner from 'react-bootstrap/Spinner';
 import ProductCard from '../components/ProductCard';
 import {
   CATEGORIES,
   categoryLabel,
-  getBrandsByCategory,
-  getProductsGroupedByBrand,
 } from '../data/products';
+import { useProducts } from '../context/ProductsContext';
 import { getMediaImage } from '../utils/images';
 import { MEDIA } from '../data/media';
 
 export default function Category() {
   const { category } = useParams();
+  const { products, loading, error } = useProducts();
   const [brandFilter, setBrandFilter] = useState('all');
 
+  if (loading) {
+    return (
+      <main className="flex-shrink-0 text-center py-5">
+        <Spinner animation="border" variant="primary" />
+        <p className="text-muted mt-2">Loading category...</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="flex-shrink-0">
+        <Container className="py-5 text-center">
+          <div className="alert alert-danger">{error}</div>
+        </Container>
+      </main>
+    );
+  }
+
   const valid = CATEGORIES.some((c) => c.key === category);
+  const categoryProducts = useMemo(() => products.filter((p) => p.category === category), [products, category]);
   const brands = useMemo(
-    () => (valid ? getBrandsByCategory(category) : []),
-    [category, valid]
+    () => (valid ? [...new Set(categoryProducts.map((p) => p.brand))].sort() : []),
+    [categoryProducts, valid]
   );
-  const groups = useMemo(
-    () => (valid ? getProductsGroupedByBrand(category) : []),
-    [category, valid]
-  );
+  const groups = useMemo(() => {
+    if (!valid) return [];
+    const map = {};
+    for (const p of categoryProducts) {
+      (map[p.brand] ||= []).push(p);
+    }
+    return Object.keys(map).sort().map((brand) => ({ brand, items: map[brand] }));
+  }, [categoryProducts, valid]);
 
   // Get category banner image
   const bannerKey = `banner${category.charAt(0).toUpperCase() + category.slice(1)}`;

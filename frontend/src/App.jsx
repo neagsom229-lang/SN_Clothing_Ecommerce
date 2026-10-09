@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 
 import { CartProvider } from "./context/CartProvider";
 import { AuthProvider } from "./context/AuthProvider";
+import { ProductsProvider } from "./context/ProductsContext";
 
 import Navbar from "./components/NavbarMenu";
 import Footer from "./components/Footer";
@@ -34,8 +35,9 @@ function ScrollToTop() {
 function App() {
     return (
         <AuthProvider>
-            <CartProvider>
-                <BrowserRouter>
+            <ProductsProvider>
+                <CartProvider>
+                    <BrowserRouter>
                     <ScrollToTop />
                     <Navbar />
 
@@ -78,7 +80,8 @@ function App() {
 
                     <Footer />
                 </BrowserRouter>
-            </CartProvider>
+                </CartProvider>
+            </ProductsProvider>
         </AuthProvider>
     );
 }

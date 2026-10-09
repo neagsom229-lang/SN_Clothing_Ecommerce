@@ -5,18 +5,41 @@ import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 import Button from 'react-bootstrap/Button';
 import Breadcrumb from 'react-bootstrap/Breadcrumb';
-import { getProductById, categoryLabel, getProductsByCategory } from '../data/products';
+import Spinner from 'react-bootstrap/Spinner';
+import { categoryLabel } from '../data/products';
+import { useProducts } from '../context/ProductsContext';
 import { useCart } from '../context/CartContext';
 import { formatPrice } from '../utils/format';
 import { getSizesForCategory } from '../utils/sizes';
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const product = getProductById(id);
+  const { getProductById, products, loading, error } = useProducts();
   const { addItem } = useCart();
   const navigate = useNavigate();
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+
+  if (loading) {
+    return (
+      <main className="flex-shrink-0 text-center py-5">
+        <Spinner animation="border" variant="primary" />
+        <p className="text-muted mt-2">Loading product...</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="flex-shrink-0">
+        <Container className="py-5 text-center">
+          <div className="alert alert-danger">{error}</div>
+        </Container>
+      </main>
+    );
+  }
+
+  const product = getProductById(id);
   const sizes = product ? getSizesForCategory(product.category) : null;
   const [size, setSize] = useState('');
 
@@ -41,8 +64,8 @@ export default function ProductDetail() {
   const needsSize = Boolean(sizes);
   const canAdd = !needsSize || size;
 
-  const related = getProductsByCategory(product.category)
-    .filter((p) => p.id !== product.id)
+  const related = products
+    .filter((p) => p.category === product.category && p.id !== product.id)
     .slice(0, 4);
 
   const buyNow = () => {

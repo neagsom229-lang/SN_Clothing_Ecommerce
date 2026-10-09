@@ -1,9 +1,14 @@
 import { Router } from 'express';
-import { createPaymentIntent } from '../controllers/payments.controller.js';
+import { createPaymentIntent, createBakongQr, checkBakongPayment } from '../controllers/payments.controller.js';
+import { optionalAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-// The webhook route is mounted separately in server.js (needs the raw body).
+// Stripe
 router.post('/create-intent', createPaymentIntent);
+
+// Bakong KHQR
+router.post('/bakong/create-qr', optionalAuth, createBakongQr);
+router.get('/bakong/check/:md5', optionalAuth, checkBakongPayment);
 
 export default router;

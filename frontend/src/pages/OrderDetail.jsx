@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
@@ -10,6 +10,8 @@ import { formatPrice } from '../utils/format';
 
 export default function OrderDetail() {
   const { id } = useParams();
+  const location = useLocation();
+  const warning = location.state?.warning;
   const { getOrderById } = useAuth();
   const order = getOrderById(id);
 
@@ -35,6 +37,12 @@ export default function OrderDetail() {
   return (
     <main className="flex-shrink-0">
       <Container className="py-5">
+        {warning && (
+          <div className="alert alert-warning text-center mb-4">
+            <i className="bi bi-exclamation-triangle me-2" />
+            {warning}
+          </div>
+        )}
         <div className="text-center mb-4">
           <i className="bi bi-check-circle-fill display-3 text-success d-block mb-2" />
           <h1 className="fw-bolder">Thank you for your order!</h1>

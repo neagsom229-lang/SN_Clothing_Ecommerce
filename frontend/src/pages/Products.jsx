@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
@@ -6,8 +6,10 @@ import Col from 'react-bootstrap/Col';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import Offcanvas from 'react-bootstrap/Offcanvas';
+import Spinner from 'react-bootstrap/Spinner';
 import ProductCard from '../components/ProductCard';
-import products, { CATEGORIES, getAllBrands } from '../data/products';
+import { CATEGORIES } from '../data/products';
+import { useProducts } from '../context/ProductsContext';
 
 const SORTS = {
   featured: { label: 'Featured', fn: null },
@@ -17,17 +19,14 @@ const SORTS = {
   newest: { label: 'Newest', fn: (a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0) },
 };
 
-const ALL_BRANDS = getAllBrands();
-const PRICE_MAX = Math.ceil(Math.max(...products.map((p) => p.price)));
-
-function FilterPanel({ brands, toggleBrand, maxPrice, setMaxPrice, minRating, setMinRating, onSaleOnly, setOnSaleOnly, newOnly, setNewOnly, onClear }) {
+function FilterPanel({ allBrands, priceMax, brands, toggleBrand, maxPrice, setMaxPrice, minRating, setMinRating, onSaleOnly, setOnSaleOnly, newOnly, setNewOnly, onClear }) {
   return (
     <>
       <div className="mb-4">
         <h6 className="filter-heading">Price</h6>
         <Form.Range
           min={0}
-          max={PRICE_MAX}
+          max={priceMax}
           value={maxPrice}
           onChange={(e) => setMaxPrice(Number(e.target.value))}
         />
@@ -40,7 +39,7 @@ function FilterPanel({ brands, toggleBrand, maxPrice, setMaxPrice, minRating, se
       <div className="mb-4">
         <h6 className="filter-heading">Brand</h6>
         <div className="d-flex flex-column gap-1">
-          {ALL_BRANDS.map((b) => (
+          {allBrands.map((b) => (
             <Form.Check
               key={b}
               type="checkbox"
@@ -96,24 +95,51 @@ function FilterPanel({ brands, toggleBrand, maxPrice, setMaxPrice, minRating, se
 }
 
 export default function Products() {
+  const { products, loading, error } = useProducts();
   const [searchParams, setSearchParams] = useSearchParams();
   const category = searchParams.get('category') || 'all';
   const query = (searchParams.get('q') || '').toLowerCase().trim();
   const sort = searchParams.get('sort') || 'featured';
 
+  const allBrands = useMemo(() => [...new Set(products.map((p) => p.brand))].sort(), [products]);
+  const priceMax = useMemo(() => Math.ceil(Math.max(...products.map((p) => p.price), 100)), [products]);
+
   const [brands, setBrands] = useState([]);
-  const [maxPrice, setMaxPrice] = useState(PRICE_MAX);
+  const [maxPrice, setMaxPrice] = useState(priceMax);
   const [minRating, setMinRating] = useState(0);
   const [onSaleOnly, setOnSaleOnly] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    setMaxPrice(priceMax);
+  }, [priceMax]);
+
+  if (loading) {
+    return (
+      <main className="flex-shrink-0 text-center py-5">
+        <Spinner animation="border" variant="primary" />
+        <p className="text-muted mt-2">Loading products...</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="flex-shrink-0">
+        <Container className="py-5 text-center">
+          <div className="alert alert-danger">{error}</div>
+        </Container>
+      </main>
+    );
+  }
 
   const toggleBrand = (b) =>
     setBrands((prev) => (prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]));
 
   const clearFilters = () => {
     setBrands([]);
-    setMaxPrice(PRICE_MAX);
+    setMaxPrice(priceMax);
     setMinRating(0);
     setOnSaleOnly(false);
     setNewOnly(false);
@@ -121,7 +147,7 @@ export default function Products() {
 
   const activeFilterCount =
     brands.length +
-    (maxPrice < PRICE_MAX ? 1 : 0) +
+    (maxPrice < priceMax ? 1 : 0) +
     (minRating > 0 ? 1 : 0) +
     (onSaleOnly ? 1 : 0) +
     (newOnly ? 1 : 0);
@@ -151,7 +177,7 @@ export default function Products() {
     });
     const sorter = SORTS[sort]?.fn;
     return sorter ? [...list].sort(sorter) : list;
-  }, [category, query, sort, brands, maxPrice, minRating, onSaleOnly, newOnly]);
+  }, [products, category, query, sort, brands, maxPrice, minRating, onSaleOnly, newOnly]);
 
   const setCategory = (key) => {
     const next = new URLSearchParams(searchParams);
@@ -168,6 +194,8 @@ export default function Products() {
   };
 
   const filterProps = {
+    allBrands,
+    priceMax,
     brands,
     toggleBrand,
     maxPrice,

@@ -44,18 +44,44 @@ export function createPaymentIntent({ items, carrier }) {
   });
 }
 
+export function createBakongQr({ items, carrier, currency = 'USD', expectedTotal, token }) {
+  return request('/payments/bakong/create-qr', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: JSON.stringify({ items, carrier, currency, expectedTotal }),
+  });
+}
+
+export function checkBakongPayment(md5, token) {
+  return request(`/payments/bakong/check/${md5}`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
 // --- orders ------------------------------------------------------------------
 
 // items: [{ id, qty, size }], shipping: {fullName, phone, province, addressLine}
 // token: optional JWT — when present, the backend links this order to the account.
-export function createOrder({ items, carrier, shipping, paymentIntentId, token }) {
+export function createOrder({ items, carrier, shipping, paymentIntentId, paymentMethod, md5, token }) {
   return request('/orders', {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: JSON.stringify({ items, carrier, shipping, paymentIntentId }),
+    body: JSON.stringify({ items, carrier, shipping, paymentIntentId, paymentMethod, md5 }),
   });
 }
 
 export function getBackendOrder(id) {
   return request(`/orders/${id}`);
+}
+
+// --- products ----------------------------------------------------------------
+
+export function getProducts(category) {
+  const query = category ? `?category=${encodeURIComponent(category)}` : '';
+  return request(`/products${query}`);
+}
+
+export function getProductById(id) {
+  return request(`/products/${id}`);
 }

@@ -4,13 +4,14 @@ import cors from 'cors';
 
 // Import DB (this runs the connection)
 import './src/db.js';
-import { isProduction } from './src/db.js';
+import { isProduction, db } from './src/db.js';
 
 import { stripeWebhook } from './src/controllers/payments.controller.js';
 import authRoutes from './src/routes/auth.routes.js';
 import productsRoutes from './src/routes/products.routes.js';
 import ordersRoutes from './src/routes/orders.routes.js';
 import paymentsRoutes from './src/routes/payments.routes.js';
+import webhooksRouter from './src/routes/webhooks.routes.js';
 
 const app = express();
 
@@ -20,11 +21,24 @@ app.use(cors({
   credentials: true 
 }));
 
+// CSP Headers allowing KHQR.dev (environment-aware for Vite dev server & production)
+app.use((_req, res, next) => {
+  const csp = isProduction
+    ? "default-src 'self'; connect-src 'self' https://api.khqr.dev https://checkout.khqr.dev wss://checkout.khqr.dev; frame-src https://checkout.khqr.dev; script-src 'self' https://checkout.khqr.dev; img-src 'self' data: https://api.khqr.dev; style-src 'self' 'unsafe-inline';"
+    : "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'self' ws://localhost:5173 wss://localhost:5173 ws://127.0.0.1:5173 wss://127.0.0.1:5173 http://localhost:5000 https://api.khqr.dev https://checkout.khqr.dev; frame-src https://checkout.khqr.dev; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.khqr.dev; img-src 'self' data: https://api.khqr.dev; style-src 'self' 'unsafe-inline';";
+
+  res.setHeader('Content-Security-Policy', csp);
+  next();
+});
+
+// KHQR Webhook needs RAW body (mounted BEFORE express.json())
+app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' }), webhooksRouter);
+
 // Stripe webhook needs RAW body
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 
 // JSON middleware for all other routes
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -63,6 +77,20 @@ if (!isProduction) {
     console.log(`🚀 SN Clothing backend running on http://localhost:${PORT}`);
     console.log(`📊 Environment: development (SQLite)`);
   });
+
+  // Auto-expire stale pending orders older than 15 minutes
+  setInterval(() => {
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const result = db.prepare(
+      `UPDATE orders SET payment_status = 'expired'
+       WHERE payment_status = 'pending'
+       AND payment_method = 'bakong'
+       AND payment_expires_at < ?`
+    ).run(cutoff);
+    if (result.changes > 0) {
+      console.log(`[cleanup] Expired ${result.changes} stale pending orders`);
+    }
+  }, 5 * 60 * 1000);
 }
 
 // ✅ EXPORT at top level (not inside conditional)

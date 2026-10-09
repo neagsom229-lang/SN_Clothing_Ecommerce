@@ -57,12 +57,37 @@ if (!isProduction) {
       total             REAL NOT NULL,
       currency          TEXT NOT NULL DEFAULT 'usd',
       payment_provider  TEXT NOT NULL DEFAULT 'stripe',
+      payment_method    TEXT DEFAULT 'stripe',
       payment_intent_id TEXT,
+      bakong_md5        TEXT,
+      bakong_qr_string  TEXT,
+      bakong_tran_id    TEXT,
       payment_status    TEXT NOT NULL DEFAULT 'pending',
+      payment_expires_at TIMESTAMP,
+      paid_at           TIMESTAMP,
       status_index      INTEGER NOT NULL DEFAULT 1,
+      is_recovery       INTEGER DEFAULT 0,
       created_at        TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_orders_bakong_md5 ON orders(bakong_md5);
   `);
+
+  // Ensure columns exist on existing databases (idempotent migration for dev SQLite)
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(orders)").all();
+    const existingCols = new Set(tableInfo.map(c => c.name));
+    if (!existingCols.has('bakong_md5')) db.exec('ALTER TABLE orders ADD COLUMN bakong_md5 TEXT');
+    if (!existingCols.has('bakong_qr_string')) db.exec('ALTER TABLE orders ADD COLUMN bakong_qr_string TEXT');
+    if (!existingCols.has('bakong_tran_id')) db.exec('ALTER TABLE orders ADD COLUMN bakong_tran_id TEXT');
+    if (!existingCols.has('payment_method')) db.exec("ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT 'stripe'");
+    if (!existingCols.has('payment_expires_at')) db.exec('ALTER TABLE orders ADD COLUMN payment_expires_at TIMESTAMP');
+    if (!existingCols.has('paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TIMESTAMP');
+    if (!existingCols.has('is_recovery')) db.exec('ALTER TABLE orders ADD COLUMN is_recovery INTEGER DEFAULT 0');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_bakong_md5 ON orders(bakong_md5);');
+  } catch (err) {
+    console.warn('[db] Migration note:', err.message);
+  }
 
   // Seed SQLite
   await seedProductsSQLite();

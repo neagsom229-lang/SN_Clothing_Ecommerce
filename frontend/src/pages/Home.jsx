@@ -1,27 +1,12 @@
 import { Link } from 'react-router-dom';
 import Slider from '../components/Slider';
 import ProductCard from '../components/ProductCard';
-import products, { CATEGORIES } from '../data/products';
+import { CATEGORIES } from '../data/products';
+import { useProducts } from '../context/ProductsContext';
+import Spinner from 'react-bootstrap/Spinner';
+import Container from 'react-bootstrap/Container';
 import { coverImage, avatarImage, CATEGORY_THEME, getMediaImage } from '../utils/images';
 import { MEDIA } from '../data/media';
-
-// Feature the top-rated product from each category, then fill to four.
-const featured = (() => {
-    const byRating = [...products].sort((a, b) => b.rating - a.rating);
-    const picks = [];
-    const seen = new Set();
-    for (const p of byRating) {
-        if (!seen.has(p.category)) {
-            picks.push(p);
-            seen.add(p.category);
-        }
-    }
-    for (const p of byRating) {
-        if (picks.length >= 4) break;
-        if (!picks.includes(p)) picks.push(p);
-    }
-    return picks.slice(0, 4);
-})();
 
 const posts = [
     {
@@ -51,6 +36,44 @@ const posts = [
 ];
 
 export default function Home() {
+    const { products, loading, error } = useProducts();
+
+    if (loading) {
+        return (
+            <main className="flex-shrink-0 text-center py-5">
+                <Spinner animation="border" variant="primary" />
+                <p className="text-muted mt-2">Loading products...</p>
+            </main>
+        );
+    }
+
+    if (error) {
+        return (
+            <main className="flex-shrink-0">
+                <Container className="py-5 text-center">
+                    <div className="alert alert-danger">{error}</div>
+                </Container>
+            </main>
+        );
+    }
+
+    const featured = (() => {
+        const byRating = [...products].sort((a, b) => b.rating - a.rating);
+        const picks = [];
+        const seen = new Set();
+        for (const p of byRating) {
+            if (!seen.has(p.category)) {
+                picks.push(p);
+                seen.add(p.category);
+            }
+        }
+        for (const p of byRating) {
+            if (picks.length >= 4) break;
+            if (!picks.includes(p)) picks.push(p);
+        }
+        return picks.slice(0, 4);
+    })();
+
     return (
         <main className="flex-shrink-0">
             <Slider />

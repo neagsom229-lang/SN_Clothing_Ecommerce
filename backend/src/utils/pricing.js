@@ -6,6 +6,7 @@ export const CARRIERS = {
   jt: { carrier: 'J&T Express', fee: 1.25 },
   virak: { carrier: 'Vireak Buntham', fee: 2.0 },
   mekong: { carrier: 'Mekong Express', fee: 1.75 },
+  pickup: { carrier: 'Store Pickup', fee: 0 },
 };
 
 // Recomputes the order total from the database, never from client-sent prices.
@@ -19,7 +20,8 @@ export function priceCart(items, carrierKey) {
 
   const stmt = db.prepare('SELECT * FROM products WHERE id = ?');
   const lines = items.map(({ id, qty, size }) => {
-    const product = stmt.get(id);
+    const safeId = Number(id);
+    const product = stmt.get(safeId);
     if (!product) throw new Error(`Product ${id} does not exist.`);
     const safeQty = Math.max(1, Number(qty) || 1);
     return {
