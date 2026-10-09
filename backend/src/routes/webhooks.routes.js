@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { db } from '../db.js';
+import { pool } from '../db.js';
 import { khqrConfig } from '../config/khqr.js';
 
 const router = Router();
@@ -77,7 +77,8 @@ router.post('/khqr', verifyWebhook, async (req, res) => {
       return res.json({ received: true, duplicate: true });
     }
 
-    const order = db.prepare('SELECT * FROM orders WHERE bakong_md5 = ?').get(data.md5);
+    const orderRes = await pool.query('SELECT * FROM orders WHERE bakong_md5 = $1', [data.md5]);
+    const order = orderRes.rows[0];
 
     if (event === 'payment.success') {
       if (order) {
@@ -86,19 +87,19 @@ router.post('/khqr', verifyWebhook, async (req, res) => {
         const expectedTotal = Number(order.total);
         if (!isNaN(paidAmount) && Math.abs(paidAmount - expectedTotal) > 0.01) {
           console.error(`[webhook] Amount mismatch for MD5 ${data.md5}: paid ${paidAmount}, expected ${expectedTotal}`);
-          // Still mark paid or log warning, but proceed since gateway confirmed payment
         }
 
-        db.prepare(
-          `UPDATE orders SET payment_status = 'paid', paid_at = datetime('now'), bakong_tran_id = COALESCE(?, bakong_tran_id) WHERE id = ?`
-        ).run(data.tran_id || null, order.id);
+        await pool.query(
+          `UPDATE orders SET payment_status = 'paid', paid_at = NOW(), bakong_tran_id = COALESCE($1, bakong_tran_id) WHERE id = $2`,
+          [data.tran_id || null, order.id]
+        );
         console.log(`[webhook] payment.success processed for order ID ${order.id} (MD5: ${data.md5})`);
       } else {
         console.warn(`[webhook] payment.success received for unknown MD5: ${data.md5}`);
       }
     } else if (event === 'payment.expired') {
       if (order && order.payment_status === 'pending') {
-        db.prepare(`UPDATE orders SET payment_status = 'expired' WHERE id = ?`).run(order.id);
+        await pool.query(`UPDATE orders SET payment_status = 'expired' WHERE id = $1`, [order.id]);
         console.log(`[webhook] payment.expired processed for order ID ${order.id}`);
       }
     } else if (event === 'payment.scanned') {
@@ -109,7 +110,6 @@ router.post('/khqr', verifyWebhook, async (req, res) => {
     return res.json({ received: true });
   } catch (err) {
     console.error('[webhook] processing error:', err);
-    // Return 500 so KHQR.dev retries the webhook
     return res.status(500).json({ error: err.message || 'Internal webhook error' });
   }
 });

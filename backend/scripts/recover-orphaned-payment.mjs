@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { db } from '../src/db.js';
+import { pool } from '../src/db.js';
 import { checkTransaction } from '../src/services/khqrClient.js';
 
 const md5 = process.argv[2];
@@ -19,13 +19,15 @@ async function recover() {
     process.exit(1);
   }
 
-  const existingOrder = db.prepare('SELECT * FROM orders WHERE bakong_md5 = ?').get(md5);
+  const existingRes = await pool.query('SELECT * FROM orders WHERE bakong_md5 = $1', [md5]);
+  const existingOrder = existingRes.rows[0];
   if (existingOrder) {
     console.log(`[recovery] Order already exists in DB (ID: ${existingOrder.id}, status: ${existingOrder.payment_status})`);
     if (existingOrder.payment_status !== 'paid') {
-      db.prepare(`UPDATE orders SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?`).run(existingOrder.id);
+      await pool.query(`UPDATE orders SET payment_status = 'paid', paid_at = NOW() WHERE id = $1`, [existingOrder.id]);
       console.log(`[recovery] Updated existing order ID ${existingOrder.id} to 'paid'.`);
     }
+    await pool.end();
     return;
   }
 
@@ -34,29 +36,33 @@ async function recover() {
   const tranId = txData.tran_id || 'RECOVERY_' + Date.now();
   const orderNumber = `SN-REC-${Math.floor(100000 + Math.random() * 900000)}`;
 
-  const info = db.prepare(`
+  const insertRes = await pool.query(`
     INSERT INTO orders
       (order_number, tracking_number, user_id, items_json, shipping_json,
        subtotal, shipping_fee, total, currency, payment_provider, payment_method,
        bakong_md5, bakong_tran_id, payment_status, paid_at, status_index, is_recovery)
     VALUES
-      (@order_number, 'REC000000', NULL, @items_json, @shipping_json,
-       @subtotal, 0, @total, 'usd', 'bakong', 'bakong',
-       @bakong_md5, @bakong_tran_id, 'paid', datetime('now'), 1, 1)
-  `).run({
-    order_number: orderNumber,
-    items_json: JSON.stringify([{ productId: 0, name: 'Recovered Item (Orphaned Payment)', price: amount, qty: 1, lineTotal: amount }]),
-    shipping_json: JSON.stringify({ fullName: 'Recovered Customer', phone: '012345678', province: 'Phnom Penh', addressLine: 'Recovered Address' }),
-    subtotal: amount,
-    total: amount,
-    bakong_md5: md5,
-    bakong_tran_id: tranId,
-  });
+      ($1, 'REC000000', NULL, $2, $3,
+       $4, 0, $5, 'usd', 'bakong', 'bakong',
+       $6, $7, 'paid', NOW(), 1, 1)
+    RETURNING id
+  `, [
+    orderNumber,
+    JSON.stringify([{ productId: 0, name: 'Recovered Item (Orphaned Payment)', price: amount, qty: 1, lineTotal: amount }]),
+    JSON.stringify({ fullName: 'Recovered Customer', phone: '012345678', province: 'Phnom Penh', addressLine: 'Recovered Address' }),
+    amount,
+    amount,
+    md5,
+    tranId,
+  ]);
 
-  console.log(`✅ Successfully recovered orphaned payment! Created order ID ${info.lastInsertRowid} (Order Number: ${orderNumber})`);
+  const newId = insertRes.rows[0].id;
+  console.log(`✅ Successfully recovered orphaned payment! Created order ID ${newId} (Order Number: ${orderNumber})`);
+  await pool.end();
 }
 
 recover().catch((err) => {
   console.error('Recovery failed:', err);
+  pool.end();
   process.exit(1);
 });

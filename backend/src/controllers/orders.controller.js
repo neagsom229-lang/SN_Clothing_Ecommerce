@@ -1,4 +1,4 @@
-import { db } from '../db.js';
+import { pool } from '../db.js';
 import { priceCart } from '../utils/pricing.js';
 import { stripe } from './payments.controller.js';
 import { checkTransaction } from '../services/khqrClient.js';
@@ -28,7 +28,7 @@ export async function createOrder(req, res) {
       return res.status(400).json({ error: 'Shipping details are incomplete.' });
     }
 
-    const priced = priceCart(items, carrier);
+    const priced = await priceCart(items, carrier);
 
     // Bakong KHQR Flow
     if (paymentMethod === 'bakong' || md5) {
@@ -36,7 +36,8 @@ export async function createOrder(req, res) {
         return res.status(400).json({ error: 'Missing Bakong MD5 hash.' });
       }
 
-      const order = db.prepare('SELECT * FROM orders WHERE bakong_md5 = ?').get(md5);
+      const orderRes = await pool.query('SELECT * FROM orders WHERE bakong_md5 = $1', [md5]);
+      const order = orderRes.rows[0];
       if (!order) {
         return res.status(404).json({ error: 'Order not found for this KHQR transaction.' });
       }
@@ -47,9 +48,10 @@ export async function createOrder(req, res) {
         if (checkResult.status !== 'paid') {
           return res.status(402).json({ error: 'Payment not completed or verified.' });
         }
-        db.prepare(
-          `UPDATE orders SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?`
-        ).run(order.id);
+        await pool.query(
+          `UPDATE orders SET payment_status = 'paid', paid_at = NOW() WHERE id = $1`,
+          [order.id]
+        );
       } else {
         // Also call checkTransaction as belt-and-suspenders
         const checkResult = await checkTransaction(md5);
@@ -64,14 +66,15 @@ export async function createOrder(req, res) {
       }
 
       const userId = req.user?.sub ?? order.user_id ?? null;
-      db.prepare(
+      await pool.query(
         `UPDATE orders
-         SET shipping_json = ?, payment_method = 'bakong', user_id = ?
-         WHERE id = ?`
-      ).run(JSON.stringify(shipping), userId, order.id);
+         SET shipping_json = $1, payment_method = 'bakong', user_id = $2
+         WHERE id = $3`,
+        [JSON.stringify(shipping), userId, order.id]
+      );
 
-      const finalized = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
-      return res.status(201).json({ order: serialize(finalized) });
+      const finalizedRes = await pool.query('SELECT * FROM orders WHERE id = $1', [order.id]);
+      return res.status(201).json({ order: serialize(finalizedRes.rows[0]) });
     }
 
     // Stripe Flow
@@ -92,58 +95,68 @@ export async function createOrder(req, res) {
     const trackingNumber = genTracking(priced.carrier);
     const userId = req.user?.sub ?? null;
 
-    const info = db
-      .prepare(
-        `INSERT INTO orders
-          (order_number, tracking_number, user_id, items_json, shipping_json,
-           subtotal, shipping_fee, total, currency, payment_provider, payment_method,
-           payment_intent_id, payment_status, status_index)
-         VALUES (@order_number, @tracking_number, @user_id, @items_json, @shipping_json,
-           @subtotal, @shipping_fee, @total, 'usd', 'stripe', 'stripe',
-           @payment_intent_id, 'paid', 1)`
-      )
-      .run({
-        order_number: orderNumber,
-        tracking_number: trackingNumber,
-        user_id: userId,
-        items_json: JSON.stringify(priced.lines),
-        shipping_json: JSON.stringify(shipping),
-        subtotal: priced.subtotal,
-        shipping_fee: priced.shippingFee,
-        total: priced.total,
-        payment_intent_id: paymentIntentId,
-      });
+    const insertRes = await pool.query(
+      `INSERT INTO orders
+        (order_number, tracking_number, user_id, items_json, shipping_json,
+         subtotal, shipping_fee, total, currency, payment_provider, payment_method,
+         payment_intent_id, payment_status, status_index)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'usd', 'stripe', 'stripe',
+         $9, 'paid', 1)
+       RETURNING id`,
+      [
+        orderNumber,
+        trackingNumber,
+        userId,
+        JSON.stringify(priced.lines),
+        JSON.stringify(shipping),
+        priced.subtotal,
+        priced.shippingFee,
+        priced.total,
+        paymentIntentId,
+      ]
+    );
 
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json({ order: serialize(order) });
+    const newOrderId = insertRes.rows[0].id;
+    const orderRes = await pool.query('SELECT * FROM orders WHERE id = $1', [newOrderId]);
+    res.status(201).json({ order: serialize(orderRes.rows[0]) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 }
 
 // GET /api/orders/mine  (requires login)
-export function listMyOrders(req, res) {
-  const rows = db
-    .prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC')
-    .all(req.user.sub);
-  res.json({ orders: rows.map(serialize) });
+export async function listMyOrders(req, res) {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.sub]
+    );
+    res.json({ orders: result.rows.map(serialize) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 }
 
 // GET /api/orders/:id
-export function getOrder(req, res) {
-  const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Order not found.' });
-  if (row.user_id && req.user?.sub !== row.user_id) {
-    return res.status(403).json({ error: 'Not your order.' });
+export async function getOrder(req, res) {
+  try {
+    const result = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ error: 'Order not found.' });
+    if (row.user_id && req.user?.sub !== row.user_id) {
+      return res.status(403).json({ error: 'Not your order.' });
+    }
+    res.json({ order: serialize(row) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ order: serialize(row) });
 }
 
 function serialize(row) {
   return {
     ...row,
-    items: JSON.parse(row.items_json),
-    shipping: JSON.parse(row.shipping_json),
+    items: typeof row.items_json === 'string' ? JSON.parse(row.items_json) : row.items_json,
+    shipping: typeof row.shipping_json === 'string' ? JSON.parse(row.shipping_json) : row.shipping_json,
     items_json: undefined,
     shipping_json: undefined,
   };

@@ -2,9 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-// Import DB (this runs the connection)
-import './src/db.js';
-import { isProduction, db } from './src/db.js';
+// Import DB and initDb
+import { isProduction, initDb, pool } from './src/db.js';
 
 import { stripeWebhook } from './src/controllers/payments.controller.js';
 import authRoutes from './src/routes/auth.routes.js';
@@ -45,7 +44,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ 
     ok: true, 
     environment: isProduction ? 'production' : 'development',
-    database: isProduction ? 'MongoDB' : 'SQLite'
+    database: 'PostgreSQL (Supabase)'
   });
 });
 
@@ -66,32 +65,35 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
-// =============================================
-// ✅ FIXED: Export at TOP LEVEL for Vercel
-// =============================================
+// Initialize DB
+await initDb();
 
 // For local development, start the server
 if (!isProduction) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🚀 SN Clothing backend running on http://localhost:${PORT}`);
-    console.log(`📊 Environment: development (SQLite)`);
+    console.log(`📊 Environment: development (PostgreSQL / Supabase)`);
   });
 
   // Auto-expire stale pending orders older than 15 minutes
-  setInterval(() => {
-    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    const result = db.prepare(
-      `UPDATE orders SET payment_status = 'expired'
-       WHERE payment_status = 'pending'
-       AND payment_method = 'bakong'
-       AND payment_expires_at < ?`
-    ).run(cutoff);
-    if (result.changes > 0) {
-      console.log(`[cleanup] Expired ${result.changes} stale pending orders`);
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const result = await pool.query(
+        `UPDATE orders SET payment_status = 'expired'
+         WHERE payment_status = 'pending'
+         AND payment_method = 'bakong'
+         AND payment_expires_at < $1`,
+        [cutoff]
+      );
+      if (result.rowCount > 0) {
+        console.log(`[cleanup] Expired ${result.rowCount} stale pending orders`);
+      }
+    } catch (err) {
+      console.error('[cleanup] error expiring pending orders:', err);
     }
   }, 5 * 60 * 1000);
 }
 
-// ✅ EXPORT at top level (not inside conditional)
 export default app;

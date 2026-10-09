@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { db } from '../db.js';
+import { pool } from '../db.js';
 import { priceCart } from '../utils/pricing.js';
 import {
   createQrPayment,
@@ -37,7 +37,7 @@ export async function createPaymentIntent(req, res) {
 
   try {
     const { items, carrier } = req.body || {};
-    const priced = priceCart(items, carrier);
+    const priced = await priceCart(items, carrier);
 
     const intent = await stripe.paymentIntents.create({
       amount: Math.round(priced.total * 100),
@@ -79,7 +79,7 @@ export async function createBakongQr(req, res) {
       }
     }
 
-    const priced = priceCart(items, carrier);
+    const priced = await priceCart(items, carrier);
 
     if (expectedTotal !== undefined && Math.abs(priced.total - Number(expectedTotal)) > 0.001) {
       return res.status(400).json({
@@ -97,32 +97,31 @@ export async function createBakongQr(req, res) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min window
     const qrImageUrl = getQrImageUrl(md5);
 
-    const info = db
-      .prepare(
-        `INSERT INTO orders
-          (order_number, tracking_number, user_id, items_json, shipping_json,
-           subtotal, shipping_fee, total, currency, payment_provider, payment_method,
-           bakong_md5, bakong_qr_string, bakong_tran_id, payment_status, payment_expires_at)
-         VALUES
-          (@order_number, @tracking_number, @user_id, @items_json, @shipping_json,
-           @subtotal, @shipping_fee, @total, @currency, 'bakong', 'bakong',
-           @bakong_md5, @bakong_qr_string, @bakong_tran_id, 'pending', @payment_expires_at)`
-      )
-      .run({
-        order_number: orderNumber,
-        tracking_number: trackingNumber,
-        user_id: userId,
-        items_json: JSON.stringify(priced.lines),
-        shipping_json: JSON.stringify({}),
-        subtotal: priced.subtotal,
-        shipping_fee: priced.shippingFee,
-        total: priced.total,
-        currency: currency.toLowerCase(),
-        bakong_md5: md5,
-        bakong_qr_string: qr,
-        bakong_tran_id: tranId || null,
-        payment_expires_at: expiresAt,
-      });
+    const insertRes = await pool.query(
+      `INSERT INTO orders
+        (order_number, tracking_number, user_id, items_json, shipping_json,
+         subtotal, shipping_fee, total, currency, payment_provider, payment_method,
+         bakong_md5, bakong_qr_string, bakong_tran_id, payment_status, payment_expires_at)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'bakong', 'bakong',
+         $10, $11, $12, 'pending', $13)
+       RETURNING id`,
+      [
+        orderNumber,
+        trackingNumber,
+        userId,
+        JSON.stringify(priced.lines),
+        JSON.stringify({}),
+        priced.subtotal,
+        priced.shippingFee,
+        priced.total,
+        currency.toLowerCase(),
+        md5,
+        qr,
+        tranId || null,
+        expiresAt,
+      ]
+    );
 
     res.json({
       md5,
@@ -132,7 +131,7 @@ export async function createBakongQr(req, res) {
       qr,
       amount: priced.total,
       currency,
-      orderId: info.lastInsertRowid,
+      orderId: insertRes.rows[0].id,
       expiresAt,
     });
   } catch (err) {
@@ -158,7 +157,9 @@ export async function checkBakongPayment(req, res) {
       return res.status(400).json({ error: 'Missing MD5 hash.' });
     }
 
-    const order = db.prepare('SELECT * FROM orders WHERE bakong_md5 = ?').get(md5);
+    const orderRes = await pool.query('SELECT * FROM orders WHERE bakong_md5 = $1', [md5]);
+    const order = orderRes.rows[0];
+
     if (!order) {
       // Check KHQR.dev relay directly for orphaned payments
       const checkResult = await checkTransaction(md5);
@@ -168,28 +169,30 @@ export async function checkBakongPayment(req, res) {
         const tranId = txData.tran_id || 'RECOVERY_' + Date.now();
         const orderNumber = `SN-REC-${Math.floor(100000 + Math.random() * 900000)}`;
 
-        const info = db.prepare(`
+        const insertRes = await pool.query(`
           INSERT INTO orders
             (order_number, tracking_number, user_id, items_json, shipping_json,
              subtotal, shipping_fee, total, currency, payment_provider, payment_method,
              bakong_md5, bakong_tran_id, payment_status, paid_at, status_index, is_recovery)
           VALUES
-            (@order_number, 'REC000000', @user_id, @items_json, @shipping_json,
-             @subtotal, 0, @total, 'usd', 'bakong', 'bakong',
-             @bakong_md5, @bakong_tran_id, 'paid', datetime('now'), 1, 1)
-        `).run({
-          order_number: orderNumber,
-          user_id: req.user?.sub ?? null,
-          items_json: JSON.stringify([{ productId: 0, name: 'Recovered Item (Orphaned Payment)', price: amount, qty: 1, lineTotal: amount }]),
-          shipping_json: JSON.stringify({ fullName: 'Recovered Customer', phone: '012345678', province: 'Phnom Penh', addressLine: 'Recovered Address' }),
-          subtotal: amount,
-          total: amount,
-          bakong_md5: md5,
-          bakong_tran_id: tranId,
-        });
+            ($1, 'REC000000', $2, $3, $4,
+             $5, 0, $6, 'usd', 'bakong', 'bakong',
+             $7, $8, 'paid', NOW(), 1, 1)
+          RETURNING id
+        `, [
+          orderNumber,
+          req.user?.sub ?? null,
+          JSON.stringify([{ productId: 0, name: 'Recovered Item (Orphaned Payment)', price: amount, qty: 1, lineTotal: amount }]),
+          JSON.stringify({ fullName: 'Recovered Customer', phone: '012345678', province: 'Phnom Penh', addressLine: 'Recovered Address' }),
+          amount,
+          amount,
+          md5,
+          tranId,
+        ]);
 
-        console.warn(`[CRITICAL] Recovered orphaned payment md5=${md5} amount=${amount} tranId=${tranId}, created order ID ${info.lastInsertRowid}`);
-        return res.json({ paid: true, orderId: info.lastInsertRowid, orphaned: true });
+        const newId = insertRes.rows[0].id;
+        console.warn(`[CRITICAL] Recovered orphaned payment md5=${md5} amount=${amount} tranId=${tranId}, created order ID ${newId}`);
+        return res.json({ paid: true, orderId: newId, orphaned: true });
       }
 
       return res.status(404).json({ paid: false, error: 'order_not_found' });
@@ -205,21 +208,22 @@ export async function checkBakongPayment(req, res) {
 
     // Check expiration locally
     if (order.payment_expires_at && new Date(order.payment_expires_at) < new Date()) {
-      db.prepare(`UPDATE orders SET payment_status = 'expired' WHERE id = ?`).run(order.id);
+      await pool.query(`UPDATE orders SET payment_status = 'expired' WHERE id = $1`, [order.id]);
       return res.json({ paid: false, status: 'expired' });
     }
 
     // Check with KHQR.dev relay
     const checkResult = await checkTransaction(md5);
     if (checkResult.status === 'paid') {
-      db.prepare(
-        `UPDATE orders SET payment_status = 'paid', paid_at = datetime('now') WHERE id = ?`
-      ).run(order.id);
+      await pool.query(
+        `UPDATE orders SET payment_status = 'paid', paid_at = NOW() WHERE id = $1`,
+        [order.id]
+      );
       return res.json({ paid: true, orderId: order.id });
     }
 
     if (checkResult.status === 'expired') {
-      db.prepare(`UPDATE orders SET payment_status = 'expired' WHERE id = ?`).run(order.id);
+      await pool.query(`UPDATE orders SET payment_status = 'expired' WHERE id = $1`, [order.id]);
       return res.json({ paid: false, status: 'expired' });
     }
 
@@ -247,9 +251,10 @@ export async function stripeWebhook(req, res) {
 
   if (event.type === 'payment_intent.succeeded') {
     const intent = event.data.object;
-    db.prepare(
-      `UPDATE orders SET payment_status = 'paid' WHERE payment_intent_id = ?`
-    ).run(intent.id);
+    await pool.query(
+      `UPDATE orders SET payment_status = 'paid' WHERE payment_intent_id = $1`,
+      [intent.id]
+    );
     console.log(`[stripe webhook] payment_intent.succeeded for ${intent.id}`);
   }
 

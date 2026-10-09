@@ -1,201 +1,70 @@
-import { DatabaseSync } from 'node:sqlite';
+import pg from 'pg';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import mongoose from 'mongoose';
 
+const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// =============================================
-// Environment Detection
-// =============================================
 const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 
-// =============================================
-// SQLite Setup (Development Only)
-// =============================================
-let db = null;
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // required for Supabase
+  max: 10,
+});
 
-if (!isProduction) {
-  const dbPath = path.join(__dirname, '..', 'sn_clothing.sqlite');
-  db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
-
-  // Create SQLite tables
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      name          TEXT NOT NULL,
-      email         TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS products (
-      id              INTEGER PRIMARY KEY,
-      name            TEXT NOT NULL,
-      brand           TEXT,
-      category        TEXT,
-      price           REAL NOT NULL,
-      compareAtPrice  REAL,
-      rating          REAL,
-      stock           INTEGER DEFAULT 0,
-      description     TEXT,
-      image           TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_number      TEXT NOT NULL UNIQUE,
-      tracking_number   TEXT,
-      user_id           INTEGER REFERENCES users(id),
-      items_json        TEXT NOT NULL,
-      shipping_json     TEXT NOT NULL,
-      subtotal          REAL NOT NULL,
-      shipping_fee      REAL NOT NULL,
-      total             REAL NOT NULL,
-      currency          TEXT NOT NULL DEFAULT 'usd',
-      payment_provider  TEXT NOT NULL DEFAULT 'stripe',
-      payment_method    TEXT DEFAULT 'stripe',
-      payment_intent_id TEXT,
-      bakong_md5        TEXT,
-      bakong_qr_string  TEXT,
-      bakong_tran_id    TEXT,
-      payment_status    TEXT NOT NULL DEFAULT 'pending',
-      payment_expires_at TIMESTAMP,
-      paid_at           TIMESTAMP,
-      status_index      INTEGER NOT NULL DEFAULT 1,
-      is_recovery       INTEGER DEFAULT 0,
-      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_orders_bakong_md5 ON orders(bakong_md5);
-  `);
-
-  // Ensure columns exist on existing databases (idempotent migration for dev SQLite)
-  try {
-    const tableInfo = db.prepare("PRAGMA table_info(orders)").all();
-    const existingCols = new Set(tableInfo.map(c => c.name));
-    if (!existingCols.has('bakong_md5')) db.exec('ALTER TABLE orders ADD COLUMN bakong_md5 TEXT');
-    if (!existingCols.has('bakong_qr_string')) db.exec('ALTER TABLE orders ADD COLUMN bakong_qr_string TEXT');
-    if (!existingCols.has('bakong_tran_id')) db.exec('ALTER TABLE orders ADD COLUMN bakong_tran_id TEXT');
-    if (!existingCols.has('payment_method')) db.exec("ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT 'stripe'");
-    if (!existingCols.has('payment_expires_at')) db.exec('ALTER TABLE orders ADD COLUMN payment_expires_at TIMESTAMP');
-    if (!existingCols.has('paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TIMESTAMP');
-    if (!existingCols.has('is_recovery')) db.exec('ALTER TABLE orders ADD COLUMN is_recovery INTEGER DEFAULT 0');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_bakong_md5 ON orders(bakong_md5);');
-  } catch (err) {
-    console.warn('[db] Migration note:', err.message);
-  }
-
-  // Seed SQLite
-  await seedProductsSQLite();
-  console.log('✅ SQLite database initialized (Development)');
-} else {
-  // =============================================
-  // MongoDB Setup (Production)
-  // =============================================
-  try {
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log('✅ MongoDB connected successfully (Production)');
-    
-    // Seed MongoDB
-    await seedProductsMongo();
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
-    throw error;
-  }
-}
-
-// =============================================
-// Seed Functions
-// =============================================
-
-// Load products from seed file
 function loadSeedProducts() {
   const seedPath = path.join(__dirname, 'data', 'products.seed.json');
   if (!fs.existsSync(seedPath)) {
-    console.warn('⚠️  products.seed.json not found, skipping seed');
+    console.warn('⚠️ products.seed.json not found, skipping seed');
     return [];
   }
   const data = fs.readFileSync(seedPath, 'utf8');
   return JSON.parse(data);
 }
 
-// SQLite Seed
-async function seedProductsSQLite() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM products').get().n;
-  if (count > 0) return;
-
-  const items = loadSeedProducts();
-  if (items.length === 0) return;
-
-  const insert = db.prepare(`
-    INSERT INTO products (id, name, brand, category, price, compareAtPrice, rating, stock, description, image)
-    VALUES (@id, @name, @brand, @category, @price, @compareAtPrice, @rating, @stock, @description, @image)
-  `);
-
-  db.exec('BEGIN');
+export async function initDb() {
   try {
-    for (const row of items) {
-      insert.run({
-        id: row.id,
-        name: row.name,
-        brand: row.brand ?? null,
-        category: row.category ?? null,
-        price: row.price,
-        compareAtPrice: row.compareAtPrice ?? null,
-        rating: row.rating ?? null,
-        stock: row.stock ?? 0,
-        description: row.description ?? null,
-        image: row.image ?? null,
-      });
+    const schemaPath = path.join(__dirname, 'schema.sql');
+    if (fs.existsSync(schemaPath)) {
+      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+      await pool.query(schemaSql);
     }
-    db.exec('COMMIT');
-    console.log(`[db] seeded ${items.length} products to SQLite`);
+
+    const countRes = await pool.query('SELECT COUNT(*) AS n FROM products');
+    const count = parseInt(countRes.rows[0].n, 10);
+    if (count === 0) {
+      const items = loadSeedProducts();
+      if (items.length > 0) {
+        for (const row of items) {
+          await pool.query(
+            `INSERT INTO products (id, name, brand, category, price, compareatprice, rating, stock, description, image)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              row.id,
+              row.name,
+              row.brand ?? null,
+              row.category ?? null,
+              row.price,
+              row.compareAtPrice ?? null,
+              row.rating ?? null,
+              row.stock ?? 0,
+              row.description ?? null,
+              row.image ?? null,
+            ]
+          );
+        }
+        console.log(`[db] seeded ${items.length} products to PostgreSQL`);
+      }
+    }
+
+    console.log('✅ PostgreSQL database initialized and connected (Supabase)');
   } catch (err) {
-    db.exec('ROLLBACK');
+    console.error('❌ PostgreSQL initialization error:', err);
     throw err;
   }
 }
 
-// MongoDB Seed
-async function seedProductsMongo() {
-  // Define Product model if not already defined
-  let Product;
-  try {
-    Product = mongoose.model('Product');
-  } catch {
-    const productSchema = new mongoose.Schema({
-      id: { type: Number, unique: true },
-      name: { type: String, required: true },
-      brand: String,
-      category: String,
-      price: { type: Number, required: true },
-      compareAtPrice: Number,
-      rating: Number,
-      stock: { type: Number, default: 0 },
-      description: String,
-      image: String,
-    }, { timestamps: true });
-    Product = mongoose.model('Product', productSchema);
-  }
-
-  const count = await Product.countDocuments();
-  if (count > 0) return;
-
-  const items = loadSeedProducts();
-  if (items.length === 0) return;
-
-  await Product.insertMany(items);
-  console.log(`[db] seeded ${items.length} products to MongoDB`);
-}
-
-// =============================================
-// Exports
-// =============================================
-export { db, isProduction };
+export { isProduction };

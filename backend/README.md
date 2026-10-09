@@ -6,15 +6,12 @@ money moves, ever — that's what "test mode" means), plus **Bakong KHQR Payment
 
 ## Stack
 - Express — HTTP API
-- Node's built-in `node:sqlite` — a real embedded SQL database (one file, zero
-  extra install — it ships inside Node itself, no compiler needed)
+- PostgreSQL (Supabase hosted via `pg` connection pooler)
 - jsonwebtoken + bcryptjs — accounts and login sessions
 - stripe — official Stripe SDK, test-mode payments
 - bakong-khqr — official NBC Bakong KHQR generator & validation SDK
 
-**Requires Node.js 22.5 or newer** (for `node:sqlite`). Check with `node -v`.
-If you're on an older version, install the current LTS from
-https://nodejs.org first.
+**Node.js 18+ or newer required.** Check with `node -v`.
 
 ## 1. Install
 
@@ -49,9 +46,7 @@ npm install
 npm run dev
 ```
 
-The API starts on `http://localhost:5000`. First run auto-creates
-`sn_clothing.sqlite` and seeds it with the same 35 products the React site
-already shows.
+The API starts on `http://localhost:5000`. First run automatically initializes the PostgreSQL schema and seeds products if the database is empty.
 
 ## API overview
 
