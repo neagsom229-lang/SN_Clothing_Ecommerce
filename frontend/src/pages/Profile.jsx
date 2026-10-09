@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
@@ -12,6 +13,19 @@ import { formatPrice } from '../utils/format';
 
 export default function Profile() {
   const { user, myOrders, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(
+    Boolean(location.state?.paymentSuccess)
+  );
+  const [successOrderNumber] = useState(location.state?.orderNumber);
+
+  useEffect(() => {
+    if (location.state?.paymentSuccess) {
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="flex-shrink-0">
@@ -59,6 +73,18 @@ export default function Profile() {
 
           {/* Orders */}
           <Col lg={8} id="orders">
+            {showPaymentSuccess && (
+              <div className="alert alert-success alert-dismissible fade show mb-4" role="alert">
+                <i className="bi bi-check-circle-fill me-2" />
+                Payment successful! Order {successOrderNumber} has been confirmed.
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowPaymentSuccess(false)}
+                  aria-label="Close"
+                />
+              </div>
+            )}
             <h1 className="fw-bolder h3 mb-4">My orders</h1>
 
             {myOrders.length === 0 ? (

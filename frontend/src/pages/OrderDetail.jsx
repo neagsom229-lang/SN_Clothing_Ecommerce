@@ -1,4 +1,5 @@
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
@@ -11,9 +12,22 @@ import { formatPrice } from '../utils/format';
 export default function OrderDetail() {
   const { id } = useParams();
   const location = useLocation();
-  const warning = location.state?.warning;
+  const navigate = useNavigate();
+  const [showWarning, setShowWarning] = useState(Boolean(location.state?.warning));
+  const [warningMessage] = useState(location.state?.warning);
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(
+    Boolean(location.state?.paymentSuccess)
+  );
+  const [successOrderNumber] = useState(location.state?.orderNumber);
   const { getOrderById } = useAuth();
   const order = getOrderById(id);
+
+  useEffect(() => {
+    if (location.state?.paymentSuccess || location.state?.warning) {
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!order) {
     return (
@@ -37,10 +51,28 @@ export default function OrderDetail() {
   return (
     <main className="flex-shrink-0">
       <Container className="py-5">
-        {warning && (
-          <div className="alert alert-warning text-center mb-4">
+        {showWarning && (
+          <div className="alert alert-warning alert-dismissible fade show text-center mb-4" role="alert">
             <i className="bi bi-exclamation-triangle me-2" />
-            {warning}
+            {warningMessage}
+            <button
+              type="button"
+              className="btn-close"
+              onClick={() => setShowWarning(false)}
+              aria-label="Close"
+            />
+          </div>
+        )}
+        {showPaymentSuccess && (
+          <div className="alert alert-success alert-dismissible fade show mb-4" role="alert">
+            <i className="bi bi-check-circle-fill me-2" />
+            Payment successful! Order {successOrderNumber} has been confirmed.
+            <button
+              type="button"
+              className="btn-close"
+              onClick={() => setShowPaymentSuccess(false)}
+              aria-label="Close"
+            />
           </div>
         )}
         <div className="text-center mb-4">

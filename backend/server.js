@@ -66,7 +66,12 @@ app.use((err, _req, res, _next) => {
 });
 
 // Initialize DB
-await initDb();
+try {
+  await initDb();
+} catch (err) {
+  console.error('❌ Failed to initialize database:', err.message);
+  process.exit(1);
+}
 
 // For local development, start the server
 if (!isProduction) {

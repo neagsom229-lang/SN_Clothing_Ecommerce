@@ -153,7 +153,9 @@ export default function Checkout() {
       });
 
       clear();
-      navigate(`/order/${order.id}`);
+      navigate(`/order/${order.id}`, {
+        state: { paymentSuccess: true, orderNumber: backendOrder.order_number },
+      });
     } catch (err) {
       setStripeError(err.message || 'Could not save the order. Please try again.');
     }
@@ -208,7 +210,9 @@ export default function Checkout() {
       });
 
       clear();
-      navigate(`/order/${order.id}`);
+      navigate(`/order/${order.id}`, {
+        state: { paymentSuccess: true, orderNumber: backendOrder.order_number },
+      });
     } catch (err) {
       setBakongFinalizeError(err.message || 'Could not finalize order after payment. Please try again.');
       setBakongPendingOrder({ md5, backendOrderId });
