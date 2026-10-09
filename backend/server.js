@@ -39,12 +39,20 @@ app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), str
 // JSON middleware for all other routes
 app.use(express.json({ limit: '1mb' }));
 
-// Health check
+let dbReady = false;
+try {
+  await initDb();
+  dbReady = true;
+} catch (err) {
+  console.error('❌ DB init failed:', err.message);
+}
+
+// Health check with DB ready guard
 app.get('/api/health', (_req, res) => {
-  res.json({ 
-    ok: true, 
+  res.status(dbReady ? 200 : 503).json({ 
+    ok: dbReady, 
     environment: isProduction ? 'production' : 'development',
-    database: 'PostgreSQL (Supabase)'
+    database: dbReady ? 'PostgreSQL (Supabase) connected' : 'PostgreSQL (Supabase) unavailable'
   });
 });
 
@@ -65,16 +73,8 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
-// Initialize DB
-try {
-  await initDb();
-} catch (err) {
-  console.error('❌ Failed to initialize database:', err.message);
-  process.exit(1);
-}
-
 // For local development, start the server
-if (!isProduction) {
+if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🚀 SN Clothing backend running on http://localhost:${PORT}`);

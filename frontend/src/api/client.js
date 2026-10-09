@@ -1,10 +1,10 @@
 // Small fetch wrapper for the backend API (see /backend).
 // Set VITE_API_URL in your .env — see .env.example.
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${API_BASE}/api${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
