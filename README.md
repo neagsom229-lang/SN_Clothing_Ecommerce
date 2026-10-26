@@ -44,6 +44,17 @@ SN_Clothing_BrandNew/
 ├── README.md
 └── vite.config.js
 
+### SN Clothing E-Commerce Platform
+**Live Demo:** [sn-clothing-ecommerce-4zqs.vercel.app](https://sn-clothing-ecommerce-4zqs.vercel.app/)  
+**Tech Stack:** React, Vite, JavaScript, Tailwind CSS, Bootstrap
+
+#### Key Features
+- **Dynamic Catalog & Filtering:** Real-time search, category sorting, and instant product status updates.
+- **Persistent Shopping Experience:** Interactive cart module preserving cart state across sessions.
+- **Streamlined Checkout Flow:** Form validation, order review, and simulation of multi-step payment routing.
+- **Admin/Customer Portal:** Overview of active customers, recent orders, and inventory tracking.
+- **Modern Responsive Design:** Hybrid utility styling pairing rapid layout scaffolding with tailored mobile UX.
+
 
 ## 🚦 Getting Started
 
@@ -67,3 +78,4 @@ npm install
 npm run dev
 
 ##More detail let contact us
+
